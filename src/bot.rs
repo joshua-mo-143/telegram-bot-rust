@@ -1,7 +1,8 @@
 use sqlx::PgPool;
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
-use std::error::Error;
+
+use crate::database::{create_watch, delete_watch, get_all_watch};
 
 pub struct BotService {
     pub bot: Bot,
@@ -44,14 +45,10 @@ enum Command {
     UsernameAndAge { username: String, age: u8 },
     #[command(description = "Allow me to alert you when a website is down (or up!).", parse_with = "split")]
     Watch {status: String, url: String},
-    #[command(description = "Allow me to alert you when this website is down.")]
-    Down(String),
-    #[command(description = "Allow me to alert you when this website is up.")]
-    Up(String),
-    #[command(description = "List all webpages that I'm watching for you.")]
-    List,
     #[command(description = "Stop watching a webpage.")]
     Unwatch(String),
+    #[command(description = "List all webpages that I'm watching for you.")]
+    List,
     #[command(description = "Stop watching any webpages that you've asked me to watch for you.")]
     Clear
 
@@ -81,30 +78,16 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
                 _ => {bot.send_message(msg.chat.id, format!("You need to tell me if you want to watch for up or down or not!")).await?;}
             }
 
-                
+            create_watch(status, url, msg.chat.id, db_connection).await.expect("Had an issue adding your submission :(");
+
                 bot.send_message(msg.chat.id,
                 format!("Successfully added your link.")).await?;
             }
-        
-        Command::Down(url) => {
-            bot.send_message(msg.chat.id, format!("Hello world")).await?;
-        }
-        Command::Up(url) => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
         Command::Unwatch(url) => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
-        Command::List => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
+        Command::List => {
+            
+        }
         Command::Clear => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
     }
-    Ok(())
-}
-
-async fn create_watch(status: String, url: String, user_id: String, connection: PgPool) -> Result<(), sqlx::Error> {
-          sqlx::query
-                ("INSERT INTO links (url, status, user_id) VALUES ($1, $2, $3)")
-                .bind(url)
-                .bind(status)
-                .bind(user_id)
-                .execute(&connection)
-                .await?;
-    
     Ok(())
 }
