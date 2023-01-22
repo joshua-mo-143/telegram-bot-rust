@@ -1,6 +1,8 @@
 use sqlx::PgPool;
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
+use std::error::Error;
+
 pub struct BotService {
     pub bot: Bot,
     pub postgres: PgPool,
@@ -20,7 +22,10 @@ impl shuttle_service::Service for BotService {
 
 impl BotService {
     async fn start(&self) -> Result<(), shuttle_service::error::CustomError> {
-        Command::repl(self.bot.clone(), answer).await;
+        let bot = self.bot.clone();
+        let db_connection = self.postgres.clone();
+        Command::repl(bot, move |bot, msg, cmd| answer(bot, msg, cmd, db_connection.clone())).await;
+
         Ok(())
     }
 }
@@ -37,26 +42,69 @@ enum Command {
     Username(String),
     #[command(description = "handle a username and an age.", parse_with = "split")]
     UsernameAndAge { username: String, age: u8 },
+    #[command(description = "Allow me to alert you when a website is down (or up!).", parse_with = "split")]
+    Watch {status: String, url: String},
+    #[command(description = "Allow me to alert you when this website is down.")]
+    Down(String),
+    #[command(description = "Allow me to alert you when this website is up.")]
+    Up(String),
+    #[command(description = "List all webpages that I'm watching for you.")]
+    List,
+    #[command(description = "Stop watching a webpage.")]
+    Unwatch(String),
+    #[command(description = "Stop watching any webpages that you've asked me to watch for you.")]
+    Clear
+
 }
 
-async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
+async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> ResponseResult<()> {
     match cmd {
         Command::Help => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
-                .await?
+                .await?;
         }
         Command::Username(username) => {
             bot.send_message(msg.chat.id, format!("Your username is @{username}."))
-                .await?
+                .await?;
         }
         Command::UsernameAndAge { username, age } => {
             bot.send_message(
                 msg.chat.id,
                 format!("Your username is @{username} and age is {age}."),
             )
-            .await?
+            .await?;
         }
-    };
+        Command::Watch {status, url} => {
+            match status.trim() {
+                "up" => {bot.send_message(msg.chat.id, format!("Up")).await?;},
+                "down" =>  {bot.send_message(msg.chat.id, format!("Down")).await?;},
+                _ => {bot.send_message(msg.chat.id, format!("You need to tell me if you want to watch for up or down or not!")).await?;}
+            }
 
+                
+                bot.send_message(msg.chat.id,
+                format!("Successfully added your link.")).await?;
+            }
+        
+        Command::Down(url) => {
+            bot.send_message(msg.chat.id, format!("Hello world")).await?;
+        }
+        Command::Up(url) => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
+        Command::Unwatch(url) => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
+        Command::List => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
+        Command::Clear => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
+    }
+    Ok(())
+}
+
+async fn create_watch(status: String, url: String, user_id: String, connection: PgPool) -> Result<(), sqlx::Error> {
+          sqlx::query
+                ("INSERT INTO links (url, status, user_id) VALUES ($1, $2, $3)")
+                .bind(url)
+                .bind(status)
+                .bind(user_id)
+                .execute(&connection)
+                .await?;
+    
     Ok(())
 }
