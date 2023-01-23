@@ -5,6 +5,8 @@ use teloxide::prelude::*;
 mod bot;
 use bot::BotService;
 
+mod database;
+
 #[shuttle_service::main]
 async fn init(
     #[shuttle_secrets::Secrets] secrets: SecretStore,
