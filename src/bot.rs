@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
 
-use crate::database::{create_watch, delete_watch, get_all_watch};
+use crate::database::{create_watch, delete_watch, get_all_watch, sort_data};
 
 pub struct BotService {
     pub bot: Bot,
@@ -25,7 +25,10 @@ impl BotService {
     async fn start(&self) -> Result<(), shuttle_service::error::CustomError> {
         let bot = self.bot.clone();
         let db_connection = self.postgres.clone();
-        Command::repl(bot, move |bot, msg, cmd| answer(bot, msg, cmd, db_connection.clone())).await;
+        Command::repl(bot, move |bot, msg, cmd| {
+            answer(bot, msg, cmd, db_connection.clone())
+        })
+        .await;
 
         Ok(())
     }
@@ -39,19 +42,17 @@ impl BotService {
 enum Command {
     #[command(description = "display this text.")]
     Help,
-    #[command(description = "handle a username.")]
-    Username(String),
-    #[command(description = "handle a username and an age.", parse_with = "split")]
-    UsernameAndAge { username: String, age: u8 },
-    #[command(description = "Allow me to alert you when a website is down (or up!).", parse_with = "split")]
-    Watch {status: String, url: String},
+    #[command(
+        description = "Allow me to alert you when a website is down (or up!).",
+        parse_with = "split"
+    )]
+    Watch { status: String, url: String },
     #[command(description = "Stop watching a webpage.")]
     Unwatch(String),
     #[command(description = "List all webpages that I'm watching for you.")]
     List,
     #[command(description = "Stop watching any webpages that you've asked me to watch for you.")]
-    Clear
-
+    Clear,
 }
 
 async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> ResponseResult<()> {
@@ -60,34 +61,69 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
                 .await?;
         }
-        Command::Username(username) => {
-            bot.send_message(msg.chat.id, format!("Your username is @{username}."))
+        Command::Watch { status, url } => match status.trim() {
+            "up" => {
+                create_watch("up".to_string(), url, msg.chat.id, db_connection)
+                    .await
+                    .expect("Had an issue adding your submission :(");
+
+                bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
+                    .await?;
+            }
+            "down" => {
+                create_watch("down".to_string(), url, msg.chat.id, db_connection)
+                    .await
+                    .expect("Had an issue adding your submission :(");
+
+                bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
+                    .await?;
+            }
+            _ => {
+                bot.send_message(
+                    msg.chat.id,
+                    "You need to tell me if you want to watch for up or down or not!".to_string(),
+                )
+                .await?;
+            }
+        },
+        Command::Unwatch(url) => {
+            delete_watch(url, msg.chat.id, db_connection)
+                .await
+                .expect("Had an issue unwatching {url}");
+
+            bot.send_message(msg.chat.id, "Successfully unwatched.".to_string())
                 .await?;
         }
-        Command::UsernameAndAge { username, age } => {
+        Command::List => {
+            let records = get_all_watch(msg.chat.id, db_connection)
+                .await
+                .expect("Had an issue getting any URLs");
+
+            let sorted_data = sort_data(records);
+
+            let meme = sorted_data
+                .iter()
+                .map(|record| {
+                    format!(
+                        "ID {}: {} - checking for {}",
+                        record.id, record.url, record.status
+                    )
+                })
+                .collect::<Vec<String>>();
+
             bot.send_message(
                 msg.chat.id,
-                format!("Your username is @{username} and age is {age}."),
+                format!(
+                    "Here's the URLs you're currently watching: {}",
+                    meme.join("\n")
+                ),
             )
             .await?;
         }
-        Command::Watch {status, url} => {
-            match status.trim() {
-                "up" => {bot.send_message(msg.chat.id, format!("Up")).await?;},
-                "down" =>  {bot.send_message(msg.chat.id, format!("Down")).await?;},
-                _ => {bot.send_message(msg.chat.id, format!("You need to tell me if you want to watch for up or down or not!")).await?;}
-            }
-
-            create_watch(status, url, msg.chat.id, db_connection).await.expect("Had an issue adding your submission :(");
-
-                bot.send_message(msg.chat.id,
-                format!("Successfully added your link.")).await?;
-            }
-        Command::Unwatch(url) => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
-        Command::List => {
-            
+        Command::Clear => {
+            bot.send_message(msg.chat.id, "Hello world!".to_string())
+                .await?;
         }
-        Command::Clear => {bot.send_message(msg.chat.id, format!("Hello world")).await?;}
     }
     Ok(())
 }
