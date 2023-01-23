@@ -1,6 +1,10 @@
+use reqwest::Client;
 use sqlx::PgPool;
+use sqlx::Row;
+use std::{error::Error, time::Duration};
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
+use tokio::time::sleep;
 
 use crate::database::{create_watch, delete_watch, get_all_watch, sort_data};
 
@@ -15,7 +19,15 @@ impl shuttle_service::Service for BotService {
         mut self: Box<Self>,
         _addr: std::net::SocketAddr,
     ) -> Result<(), shuttle_service::error::Error> {
-        self.start().await?;
+        let (first, second) = tokio::join!(self.start(), self.monitor());
+        match first {
+            Ok(result) => println!("{:?}", result),
+            Err(err) => println!("{:?}", err),
+        };
+        match second {
+            Ok(result) => println!("{:?}", result),
+            Err(err) => println!("{:?}", err),
+        };
 
         Ok(())
     }
@@ -25,11 +37,19 @@ impl BotService {
     async fn start(&self) -> Result<(), shuttle_service::error::CustomError> {
         let bot = self.bot.clone();
         let db_connection = self.postgres.clone();
+
         Command::repl(bot, move |bot, msg, cmd| {
             answer(bot, msg, cmd, db_connection.clone())
         })
         .await;
 
+        Ok(())
+    }
+
+    async fn monitor(&self) -> Result<(), shuttle_service::error::CustomError> {
+        start_monitoring(self.bot.clone(), self.postgres.clone())
+            .await
+            .expect("Had an issue monitoring the database");
         Ok(())
     }
 }
@@ -126,4 +146,41 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
         }
     }
     Ok(())
+}
+
+pub async fn start_monitoring(bot: Bot, db_connection: PgPool) -> Result<(), Box<dyn Error>> {
+    loop {
+        let records = sqlx::query("SELECT * FROM links")
+            .fetch_all(&db_connection)
+            .await?;
+
+        for row in records.iter() {
+            let url: String = row.get("url");
+            let status: String = row.get("status");
+            let user_id: String = row.get("user_id");
+
+            let reqwest_client = Client::new();
+            let resp = reqwest_client.get(&url).send().await;
+
+            match status.trim() {
+                "up" => {
+                    if resp.unwrap().status().is_success() {
+                        bot.send_message(user_id, format!("{url} is up!"))
+                            .await
+                            .expect("Had an error trying to send a message");
+                    }
+                }
+                "down" => {
+                    if !resp.unwrap().status().is_success() {
+                        bot.send_message(user_id, format!("{url} is down!"))
+                            .await
+                            .expect("Had an error trying to send a message");
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        sleep(Duration::from_secs(120)).await;
+    }
 }
