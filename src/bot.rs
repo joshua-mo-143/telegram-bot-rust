@@ -21,9 +21,8 @@ impl shuttle_service::Service for BotService {
         addr: std::net::SocketAddr,
     ) -> Result<(), shuttle_service::error::Error> {
 
-        create_router(addr).await.expect("Error creating web service");
+        tokio::join!(create_router(addr), self.start());
 
-        self.clone().start().await?;
         Ok(())
     }
 }
