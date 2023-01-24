@@ -1,9 +1,8 @@
 use shuttle_secrets::SecretStore;
 use sqlx::PgPool;
-use sync_wrapper::SyncWrapper;
 use teloxide::prelude::*;
-use axum::{Router, routing::get};
-use std::error::Error;
+use axum::{Router, routing::{get}};
+use std::{net::SocketAddr};
 
 mod bot;
 use bot::BotService;
@@ -16,8 +15,6 @@ async fn init(
     #[shuttle_shared_db::Postgres] postgres: PgPool,
 ) -> Result<BotService, shuttle_service::Error> {
 
-    create_router().await.expect("An error occurred while setting up the router :(");
-
     let teloxide_key = secrets
         .get("TELOXIDE_TOKEN")
         .expect("You need a teloxide key set for this to work!");
@@ -28,13 +25,13 @@ async fn init(
     })
 }
 
-async fn create_router() -> Result<SyncWrapper<Router>, Box<dyn Error>> {
+async fn create_router(addr: SocketAddr) -> Result<(), hyper::Error> {
     let router = Router::new()
             .route("/", get(hello));
     
-    let syncwrapper = SyncWrapper::new(router);
-
-    Ok(syncwrapper)
+    let serverbind = axum::Server::bind(&addr).serve(router.into_make_service());
+    
+    serverbind.await
 }
 
 async fn hello() -> &'static str {

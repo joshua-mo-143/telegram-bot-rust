@@ -5,6 +5,7 @@ use teloxide::dispatching::{dialogue, Dispatcher, UpdateHandler};
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
 
+use crate::create_router;
 use crate::database::{get_all_watch};
 
 #[derive(Clone)]
@@ -17,8 +18,11 @@ pub struct BotService {
 impl shuttle_service::Service for BotService {
     async fn bind(
         mut self: Box<Self>,
-        _addr: std::net::SocketAddr,
+        addr: std::net::SocketAddr,
     ) -> Result<(), shuttle_service::error::Error> {
+
+        create_router(addr).await.expect("Error creating web service");
+
         self.clone().start().await?;
         Ok(())
     }
