@@ -1,13 +1,13 @@
-use reqwest::Client;
 use sqlx::PgPool;
 use sqlx::Row;
-use std::{error::Error, time::Duration};
+use teloxide::dispatching::dialogue::InMemStorage;
+use teloxide::dispatching::{dialogue, Dispatcher, UpdateHandler};
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
-use tokio::time::sleep;
 
 use crate::database::{create_watch, delete_watch, get_all_watch, sort_data};
 
+#[derive(Clone)]
 pub struct BotService {
     pub bot: Bot,
     pub postgres: PgPool,
@@ -19,16 +19,7 @@ impl shuttle_service::Service for BotService {
         mut self: Box<Self>,
         _addr: std::net::SocketAddr,
     ) -> Result<(), shuttle_service::error::Error> {
-        let (first, second) = tokio::join!(self.start(), self.monitor());
-        match first {
-            Ok(result) => println!("{:?}", result),
-            Err(err) => println!("{:?}", err),
-        };
-        match second {
-            Ok(result) => println!("{:?}", result),
-            Err(err) => println!("{:?}", err),
-        };
-
+        self.clone().start().await?;
         Ok(())
     }
 }
@@ -36,22 +27,25 @@ impl shuttle_service::Service for BotService {
 impl BotService {
     async fn start(&self) -> Result<(), shuttle_service::error::CustomError> {
         let bot = self.bot.clone();
-        let db_connection = self.postgres.clone();
 
-        Command::repl(bot, move |bot, msg, cmd| {
-            answer(bot, msg, cmd, db_connection.clone())
-        })
-        .await;
+        Dispatcher::builder(bot, answer())
+            .dependencies(dptree::deps![
+                self.postgres.clone(),
+                InMemStorage::<State>::new()
+            ])
+            .build()
+            .dispatch()
+            .await;
 
         Ok(())
     }
+}
 
-    async fn monitor(&self) -> Result<(), shuttle_service::error::CustomError> {
-        start_monitoring(self.bot.clone(), self.postgres.clone())
-            .await
-            .expect("Had an issue monitoring the database");
-        Ok(())
-    }
+#[derive(Clone, Default)]
+pub enum State {
+    #[default]
+    Start,
+    ReceiveFullName
 }
 
 #[derive(BotCommands, Clone)]
@@ -75,112 +69,135 @@ enum Command {
     Clear,
 }
 
-async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> ResponseResult<()> {
-    match cmd {
-        Command::Help => {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string())
-                .await?;
-        }
-        Command::Watch { status, url } => match status.trim() {
-            "up" => {
-                create_watch("up".to_string(), url, msg.chat.id, db_connection)
-                    .await
-                    .expect("Had an issue adding your submission :(");
+fn answer() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
+    use dptree::case;
 
-                bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
-                    .await?;
-            }
-            "down" => {
-                create_watch("down".to_string(), url, msg.chat.id, db_connection)
-                    .await
-                    .expect("Had an issue adding your submission :(");
+    let cmd_handler = teloxide::filter_command::<Command, _>().branch(
+        case![State::Start]
+                .branch(case![Command::Help].endpoint(help))
+                .branch(case![Command::List].endpoint(list))
+        );
+    
+    let message_handler = Update::filter_message()
+            .branch(cmd_handler)
+            .branch(case![State::ReceiveFullName].endpoint(receive_full_name));
+    
 
-                bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
-                    .await?;
-            }
-            _ => {
-                bot.send_message(
-                    msg.chat.id,
-                    "You need to tell me if you want to watch for up or down or not!".to_string(),
-                )
-                .await?;
-            }
-        },
-        Command::Unwatch(url) => {
-            delete_watch(url, msg.chat.id, db_connection)
-                .await
-                .expect("Had an issue unwatching {url}");
+    dialogue::enter::<Update, InMemStorage<State>, State, _>().branch(message_handler)
+    // match cmd {
+    //     Command::Help => {
+    //         bot.send_message(msg.chat.id, Command::descriptions().to_string())
+    //             .await?;
+    //     }
+    //     Command::Watch { status, url } => match status.trim() {
+    //         "up" => {
+    //             create_watch("up".to_string(), url, msg.chat.id, db_connection)
+    //                 .await
+    //                 .expect("Had an issue adding your submission :(");
 
-            bot.send_message(msg.chat.id, "Successfully unwatched.".to_string())
-                .await?;
-        }
-        Command::List => {
-            let records = get_all_watch(msg.chat.id, db_connection)
-                .await
-                .expect("Had an issue getting any URLs");
+    //             bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
+    //                 .await?;
+    //         }
+    //         "down" => {
+    //             create_watch("down".to_string(), url, msg.chat.id, db_connection)
+    //                 .await
+    //                 .expect("Had an issue adding your submission :(");
 
-            let sorted_data = sort_data(records);
+    //             bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
+    //                 .await?;
+    //         }
+    //         _ => {
+    //             bot.send_message(
+    //                 msg.chat.id,
+    //                 "You need to tell me if you want to watch for up or down or not!".to_string(),
+    //             )
+    //             .await?;
+    //         }
+    //     },
+    //     Command::Unwatch(url) => {
+    //         delete_watch(url, msg.chat.id, db_connection)
+    //             .await
+    //             .expect("Had an issue unwatching {url}");
 
-            let meme = sorted_data
-                .iter()
-                .map(|record| {
-                    format!(
-                        "ID {}: {} - checking for {}",
-                        record.id, record.url, record.status
-                    )
-                })
-                .collect::<Vec<String>>();
+    //         bot.send_message(msg.chat.id, "Successfully unwatched.".to_string())
+    //             .await?;
+    //     }
+    //     Command::List => {
+    //         let records = get_all_watch(msg.chat.id, db_connection)
+    //             .await
+    //             .expect("Had an issue getting any URLs");
 
-            bot.send_message(
-                msg.chat.id,
-                format!(
-                    "Here's the URLs you're currently watching: {}",
-                    meme.join("\n")
-                ),
-            )
-            .await?;
-        }
-        Command::Clear => {
-            bot.send_message(msg.chat.id, "Hello world!".to_string())
-                .await?;
-        }
-    }
+    //         let sorted_data = sort_data(records);
+
+    //         let meme = sorted_data
+    //             .iter()
+    //             .map(|record| {
+    //                 format!(
+    //                     "ID {}: {} - checking for {}",
+    //                     record.id, record.url, record.status
+    //                 )
+    //             })
+    //             .collect::<Vec<String>>();
+
+    //         bot.send_message(
+    //             msg.chat.id,
+    //             format!(
+    //                 "Here's the URLs you're currently watching: {}",
+    //                 meme.join("\n")
+    //             ),
+    //         )
+    //         .await?;
+    //     }
+    //     Command::Clear => {
+    //         bot.send_message(msg.chat.id, "Hello world!".to_string())
+    //             .await?;
+    //     }
+    // }
+}
+
+type MyDialogue = Dialogue<State, InMemStorage<State>>;
+type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+async fn help(bot: Bot, msg: Message) -> HandlerResult {
+    bot.send_message(msg.chat.id, format!("hello"))
+        .await
+        .expect("Had an error sending message");
+
     Ok(())
 }
 
-pub async fn start_monitoring(bot: Bot, db_connection: PgPool) -> Result<(), Box<dyn Error>> {
-    loop {
-        let records = sqlx::query("SELECT * FROM links")
-            .fetch_all(&db_connection)
-            .await?;
+async fn list(bot: Bot, msg: Message, dbconn: PgPool) -> HandlerResult {
+    let records = get_all_watch(msg.chat.id, dbconn).await?;
 
-        for row in records.iter() {
-            let url: String = row.get("url");
-            let status: String = row.get("status");
-            let user_id: String = row.get("user_id");
+    let mut records_vec: Vec<Record> = Vec::new();
 
-            let reqwest_client = Client::new();
-            let resp = reqwest_client.get(&url).send().await;
+    for row in records.iter() {
+        let record = Record {
+            id: row.get("id"),
+            url: row.get("url"),
+            status: row.get("status"),
+        };
 
-            match status.trim() {
-                "up" => {
-                    if resp.unwrap().status().is_success() {
-                        bot.send_message(user_id, format!("{url} is up!"))
-                            .await
-                            .expect("Had an error trying to send a message");
-                    }
-                }
-                "down" => {
-                    if !resp.unwrap().status().is_success() {
-                        bot.send_message(user_id, format!("{url} is down!"))
-                            .await
-                            .expect("Had an error trying to send a message");
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        sleep(Duration::from_secs(120)).await;
+        records_vec.push(record);
     }
+
+    bot.send_message(
+        msg.chat.id,
+        format!(
+            "I'm currently watching: {:?}",
+            records_vec
+                .iter()
+                .map(|e| format!("ID {}: {} - watching for {}", e.id, e.url, e.status))
+        ),
+    )
+    .await
+    .expect("Had an issue printing out message");
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct Record {
+    id: i32,
+    url: String,
+    status: String,
 }
