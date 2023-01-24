@@ -5,7 +5,7 @@ use teloxide::dispatching::{dialogue, Dispatcher, UpdateHandler};
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
 
-use crate::database::{create_watch, delete_watch, get_all_watch, sort_data};
+use crate::database::{get_all_watch};
 
 #[derive(Clone)]
 pub struct BotService {
@@ -44,8 +44,7 @@ impl BotService {
 #[derive(Clone, Default)]
 pub enum State {
     #[default]
-    Start,
-    ReceiveFullName
+    Start
 }
 
 #[derive(BotCommands, Clone)]
@@ -76,90 +75,19 @@ fn answer() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>>
         case![State::Start]
                 .branch(case![Command::Help].endpoint(help))
                 .branch(case![Command::List].endpoint(list))
+                .branch(case![Command::Watch {status, url}].endpoint(watch))
+                .branch(case![Command::Unwatch (status)].endpoint(unwatch))
+                .branch(case![Command::Clear].endpoint(clear))
         );
-    
-    let message_handler = Update::filter_message()
-            .branch(cmd_handler)
-            .branch(case![State::ReceiveFullName].endpoint(receive_full_name));
-    
 
-    dialogue::enter::<Update, InMemStorage<State>, State, _>().branch(message_handler)
-    // match cmd {
-    //     Command::Help => {
-    //         bot.send_message(msg.chat.id, Command::descriptions().to_string())
-    //             .await?;
-    //     }
-    //     Command::Watch { status, url } => match status.trim() {
-    //         "up" => {
-    //             create_watch("up".to_string(), url, msg.chat.id, db_connection)
-    //                 .await
-    //                 .expect("Had an issue adding your submission :(");
-
-    //             bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
-    //                 .await?;
-    //         }
-    //         "down" => {
-    //             create_watch("down".to_string(), url, msg.chat.id, db_connection)
-    //                 .await
-    //                 .expect("Had an issue adding your submission :(");
-
-    //             bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
-    //                 .await?;
-    //         }
-    //         _ => {
-    //             bot.send_message(
-    //                 msg.chat.id,
-    //                 "You need to tell me if you want to watch for up or down or not!".to_string(),
-    //             )
-    //             .await?;
-    //         }
-    //     },
-    //     Command::Unwatch(url) => {
-    //         delete_watch(url, msg.chat.id, db_connection)
-    //             .await
-    //             .expect("Had an issue unwatching {url}");
-
-    //         bot.send_message(msg.chat.id, "Successfully unwatched.".to_string())
-    //             .await?;
-    //     }
-    //     Command::List => {
-    //         let records = get_all_watch(msg.chat.id, db_connection)
-    //             .await
-    //             .expect("Had an issue getting any URLs");
-
-    //         let sorted_data = sort_data(records);
-
-    //         let meme = sorted_data
-    //             .iter()
-    //             .map(|record| {
-    //                 format!(
-    //                     "ID {}: {} - checking for {}",
-    //                     record.id, record.url, record.status
-    //                 )
-    //             })
-    //             .collect::<Vec<String>>();
-
-    //         bot.send_message(
-    //             msg.chat.id,
-    //             format!(
-    //                 "Here's the URLs you're currently watching: {}",
-    //                 meme.join("\n")
-    //             ),
-    //         )
-    //         .await?;
-    //     }
-    //     Command::Clear => {
-    //         bot.send_message(msg.chat.id, "Hello world!".to_string())
-    //             .await?;
-    //     }
-    // }
+    dialogue::enter::<Update, InMemStorage<State>, State, _>().branch(cmd_handler)
 }
 
 type MyDialogue = Dialogue<State, InMemStorage<State>>;
 type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 async fn help(bot: Bot, msg: Message) -> HandlerResult {
-    bot.send_message(msg.chat.id, format!("hello"))
+    bot.send_message(msg.chat.id, Command::descriptions().to_string())
         .await
         .expect("Had an error sending message");
 
@@ -181,17 +109,36 @@ async fn list(bot: Bot, msg: Message, dbconn: PgPool) -> HandlerResult {
         records_vec.push(record);
     }
 
+    let iterated_records = records_vec.iter().map(|e| format!("ID {}: {} - watching for {}", e.id, e.url, e.status)).collect::<Vec<String>>();
+
     bot.send_message(
         msg.chat.id,
         format!(
-            "I'm currently watching: {:?}",
-            records_vec
-                .iter()
-                .map(|e| format!("ID {}: {} - watching for {}", e.id, e.url, e.status))
+            "I'm currently watching: \n{}",
+            iterated_records.join("\n ")
         ),
     )
     .await
     .expect("Had an issue printing out message");
+    Ok(())
+}
+
+async fn watch(bot: Bot, dbconn: PgPool, msg: Message, status: String, url: String) -> HandlerResult {
+        sqlx::query("INSERT INTO links (url, status, user_id) VALUES ($1, $2, $3)")
+            .bind(url)
+            .bind(status)
+            .bind(msg.chat.id.to_string())
+            .execute(&dbconn)
+            .await?;
+        
+        bot.send_message(msg.chat.id, "Successfully saved your link.").await?;
+    Ok(())
+}
+
+async fn unwatch() -> HandlerResult {
+    Ok(())
+}
+async fn clear() -> HandlerResult {
     Ok(())
 }
 
