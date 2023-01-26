@@ -23,17 +23,17 @@ impl shuttle_service::Service for BotService {
         mut self: Box<Self>,
         _addr: std::net::SocketAddr,
     ) -> Result<(), shuttle_service::error::Error> {
-        let meme = Arc::new(self);
+        let share_self = Arc::new(self);
 
-        let a = meme.clone();
+        let background_task = share_self.clone();
         tokio::spawn(async move {
-            Arc::clone(&meme)
+            Arc::clone(&share_self)
                 .start()
                 .await
                 .expect("An error ocurred while using the bot!");
         });
 
-        a.monitor().await?;
+        background_task.monitor().await?;
 
         Ok(())
     }
@@ -196,7 +196,7 @@ async fn send_message_without_link_preview(
     user_id: ChatId,
     msg: String,
 ) -> Result<(), Box<dyn Error>> {
-    let meme = SendMessage {
+    let message_to_send = SendMessage {
         chat_id: user_id.into(),
         text: msg,
         disable_web_page_preview: Some(true),
@@ -210,7 +210,7 @@ async fn send_message_without_link_preview(
         allow_sending_without_reply: Some(false),
     };
 
-    let request = JsonRequest::new(bot, meme);
+    let request = JsonRequest::new(bot, message_to_send);
 
     request.send().await.unwrap();
 

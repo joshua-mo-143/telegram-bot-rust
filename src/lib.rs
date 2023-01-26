@@ -12,6 +12,11 @@ async fn init(
     #[shuttle_secrets::Secrets] secrets: SecretStore,
     #[shuttle_shared_db::Postgres] postgres: PgPool,
 ) -> Result<BotService, shuttle_service::Error> {
+    sqlx::migrate!()
+        .run(&postgres)
+        .await
+        .expect("ERROR: Couldn't carry out migrations");
+
     let teloxide_key = secrets
         .get("TELOXIDE_TOKEN")
         .expect("You need a teloxide key set for this to work!");
