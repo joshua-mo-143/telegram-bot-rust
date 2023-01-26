@@ -7,6 +7,12 @@ pub async fn create_watch(
     user_id: ChatId,
     connection: PgPool,
 ) -> Result<(), sqlx::Error> {
+    let url = if url[0..4] == *"http" {
+        url
+    } else {
+        format!("http://{url}")
+    };
+
     sqlx::query("INSERT INTO links (url, status, user_id) VALUES ($1, $2, $3)")
         .bind(url)
         .bind(status)

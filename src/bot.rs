@@ -1,13 +1,17 @@
 use reqwest::Client;
 use sqlx::PgPool;
 use sqlx::Row;
+use std::sync::Arc;
 use std::{error::Error, time::Duration};
+use teloxide::payloads::SendMessage;
 use teloxide::prelude::*;
+use teloxide::requests::JsonRequest;
 use teloxide::utils::command::BotCommands;
 use tokio::time::sleep;
 
 use crate::database::{create_watch, delete_watch, get_all_watch, sort_data};
 
+#[derive(Clone)]
 pub struct BotService {
     pub bot: Bot,
     pub postgres: PgPool,
@@ -19,15 +23,17 @@ impl shuttle_service::Service for BotService {
         mut self: Box<Self>,
         _addr: std::net::SocketAddr,
     ) -> Result<(), shuttle_service::error::Error> {
-        let (first, second) = tokio::join!(self.start(), self.monitor());
-        match first {
-            Ok(result) => println!("{:?}", result),
-            Err(err) => println!("{:?}", err),
-        };
-        match second {
-            Ok(result) => println!("{:?}", result),
-            Err(err) => println!("{:?}", err),
-        };
+        let meme = Arc::new(self);
+
+        let a = meme.clone();
+        tokio::spawn(async move {
+            Arc::clone(&meme)
+                .start()
+                .await
+                .expect("An error ocurred while using the bot!");
+        });
+
+        a.monitor().await?;
 
         Ok(())
     }
@@ -121,7 +127,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
 
             let sorted_data = sort_data(records);
 
-            let meme = sorted_data
+            let data_to_strings = sorted_data
                 .iter()
                 .map(|record| {
                     format!(
@@ -131,14 +137,14 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
                 })
                 .collect::<Vec<String>>();
 
-            bot.send_message(
-                msg.chat.id,
-                format!(
-                    "Here's the URLs you're currently watching: {}",
-                    meme.join("\n")
-                ),
-            )
-            .await?;
+            let data_to_strings = format!(
+                "Here's the URLs you're currently watching: \n{}",
+                data_to_strings.join("\n")
+            );
+
+            send_message_without_link_preview(bot, msg.chat.id, data_to_strings)
+                .await
+                .expect("Oh no! There was an error sending a list message");
         }
         Command::Clear => {
             bot.send_message(msg.chat.id, "Hello world!".to_string())
@@ -183,4 +189,30 @@ pub async fn start_monitoring(bot: Bot, db_connection: PgPool) -> Result<(), Box
 
         sleep(Duration::from_secs(120)).await;
     }
+}
+
+async fn send_message_without_link_preview(
+    bot: Bot,
+    user_id: ChatId,
+    msg: String,
+) -> Result<(), Box<dyn Error>> {
+    let meme = SendMessage {
+        chat_id: user_id.into(),
+        text: msg,
+        disable_web_page_preview: Some(true),
+        message_thread_id: None,
+        entities: None,
+        parse_mode: None,
+        disable_notification: Some(false),
+        protect_content: Some(true),
+        reply_to_message_id: None,
+        reply_markup: None,
+        allow_sending_without_reply: Some(false),
+    };
+
+    let request = JsonRequest::new(bot, meme);
+
+    request.send().await.unwrap();
+
+    Ok(())
 }
