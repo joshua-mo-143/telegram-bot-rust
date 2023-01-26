@@ -4,6 +4,7 @@ use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::dispatching::{dialogue, Dispatcher, UpdateHandler};
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
+use futures::join;
 
 use crate::create_router;
 use crate::database::{get_all_watch};
@@ -21,7 +22,7 @@ impl shuttle_service::Service for BotService {
         addr: std::net::SocketAddr,
     ) -> Result<(), shuttle_service::error::Error> {
 
-        tokio::join!(create_router(addr), self.start());
+        join!(create_router(addr), self.start());
 
         Ok(())
     }
