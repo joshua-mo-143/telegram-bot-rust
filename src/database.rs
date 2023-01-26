@@ -1,7 +1,7 @@
 use sqlx::{postgres::PgRow, PgPool, Row};
 use teloxide::types::ChatId;
 
-pub async fn create_watch(
+pub async fn create_record(
     status: String,
     url: String,
     user_id: ChatId,
@@ -23,7 +23,7 @@ pub async fn create_watch(
     Ok(())
 }
 
-pub async fn delete_watch(
+pub async fn delete_record(
     url: String,
     user_id: ChatId,
     connection: PgPool,
@@ -37,7 +37,7 @@ pub async fn delete_watch(
     Ok(())
 }
 
-pub async fn get_all_watch(user_id: ChatId, connection: PgPool) -> Result<Vec<PgRow>, sqlx::Error> {
+pub async fn get_all_records(user_id: ChatId, connection: PgPool) -> Result<Vec<PgRow>, sqlx::Error> {
     let query = sqlx::query("SELECT * FROM links WHERE user_id = $1")
         .bind(user_id.to_string())
         .fetch_all(&connection);

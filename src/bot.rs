@@ -9,7 +9,7 @@ use teloxide::requests::JsonRequest;
 use teloxide::utils::command::BotCommands;
 use tokio::time::sleep;
 
-use crate::database::{create_watch, delete_watch, get_all_watch, sort_data};
+use crate::database::{create_record, delete_record, get_all_records, sort_data};
 
 #[derive(Clone)]
 pub struct BotService {
@@ -89,7 +89,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
         }
         Command::Watch { status, url } => match status.trim() {
             "up" => {
-                create_watch("up".to_string(), url, msg.chat.id, db_connection)
+                create_record(status, url, msg.chat.id, db_connection)
                     .await
                     .expect("Had an issue adding your submission :(");
 
@@ -97,7 +97,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
                     .await?;
             }
             "down" => {
-                create_watch("down".to_string(), url, msg.chat.id, db_connection)
+                create_record(status, url, msg.chat.id, db_connection)
                     .await
                     .expect("Had an issue adding your submission :(");
 
@@ -113,7 +113,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
             }
         },
         Command::Unwatch(url) => {
-            delete_watch(url, msg.chat.id, db_connection)
+            delete_record(url, msg.chat.id, db_connection)
                 .await
                 .expect("Had an issue unwatching {url}");
 
@@ -121,7 +121,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
                 .await?;
         }
         Command::List => {
-            let records = get_all_watch(msg.chat.id, db_connection)
+            let records = get_all_records(msg.chat.id, db_connection)
                 .await
                 .expect("Had an issue getting any URLs");
 
