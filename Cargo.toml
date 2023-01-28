@@ -8,9 +8,13 @@ publish = false
 
 [dependencies]
 reqwest = "0.11.14"
-shuttle-secrets = "0.8.0"
-shuttle-service = { version = "0.8.0", features = ["web-axum"] }
-shuttle-shared-db = { version = "0.8.0", features = ["postgres", "sqlx"] }
+shuttle-secrets = "0.9.0"
+shuttle-service = { version = "0.9.0", features = ["web-axum"] }
+shuttle-shared-db = { version = "0.9.0", features = ["postgres", "sqlx"] }
 sqlx = { version = "0.6.2", features = ["runtime-tokio-native-tls", "postgres"] }
 teloxide = { version = "0.12.0", features = ["macros"] }
-tokio = { version = "1.22.0"}
+tokio = "1.22.0"
+
+[patch.crates-io.mime_guess]
+git="https://github.com/NathanSWard/mime_guess.git"
+branch="platform-path-separators"

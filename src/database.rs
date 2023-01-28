@@ -63,7 +63,7 @@ pub fn sort_data(data: Vec<PgRow>) -> Vec<Link> {
     records
 }
 
-pub struct Link {
+pub struct Link {   
     pub id: i32,
     pub url: String,
     pub status: String,

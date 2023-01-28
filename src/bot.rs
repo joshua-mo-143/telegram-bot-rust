@@ -11,7 +11,6 @@ use tokio::time::sleep;
 
 use crate::database::{create_record, delete_record, get_all_records, sort_data};
 
-#[derive(Clone)]
 pub struct BotService {
     pub bot: Bot,
     pub postgres: PgPool,
@@ -88,22 +87,14 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, db_connection: PgPool) -> 
                 .await?;
         }
         Command::Watch { status, url } => match status.trim() {
-            "up" => {
+            "up" | "down" => {
                 create_record(status, url, msg.chat.id, db_connection)
                     .await
                     .expect("Had an issue adding your submission :(");
 
                 bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
                     .await?;
-            }
-            "down" => {
-                create_record(status, url, msg.chat.id, db_connection)
-                    .await
-                    .expect("Had an issue adding your submission :(");
-
-                bot.send_message(msg.chat.id, "Successfully added your link.".to_string())
-                    .await?;
-            }
+            },
             _ => {
                 bot.send_message(
                     msg.chat.id,
